@@ -72,7 +72,7 @@ namespace WebApplication3.Services
 
 
                 var firstTrack = dataArray[0];
-                if(firstTrack == null || firstTrack["id"] == null)
+                if (firstTrack == null || firstTrack["id"] == null)
                 {
                     Console.WriteLine($"No valid track ID found in Deezer response for: {artist} - {title}");
                     return null;
@@ -116,6 +116,7 @@ namespace WebApplication3.Services
                 return null;
             }
         }
+       
         public async Task<List<TrackInfo>> GetPlaylistTracksWithAvailability(string playlistId)
         {
             try
@@ -168,7 +169,7 @@ namespace WebApplication3.Services
             {
                 throw new Exception($"Error getting playlist tracks with availability: {ex.Message}");
             }
-            
+
         }
         public async Task<IActionResult> DownloadTrackWithSaveDialog(string deezerUrl, string format = "mp3")
         {
@@ -233,9 +234,9 @@ namespace WebApplication3.Services
         }
         public async Task<(IActionResult Result, List<TrackInfo> FailedTracks)> DownloadPlaylistAsync(string spotifyPlaylistId, string format = "mp3")
         {
-            var downloadDirectory = @"D:\VSproject\WebApplication3\WebApplication3\wwwroot\music";
-            var playlistDir = Path.Combine(downloadDirectory, $"spotify_playlist_{spotifyPlaylistId}_{Guid.NewGuid().ToString("N").Substring(0, 8)}");
-            Directory.CreateDirectory(playlistDir);
+            // Создаем временную директорию вне папки music
+            var tempDirectory = Path.Combine(Path.GetTempPath(), $"spotify_playlist_{spotifyPlaylistId}_{Guid.NewGuid().ToString("N").Substring(0, 8)}");
+            Directory.CreateDirectory(tempDirectory);
 
             var failedTracks = new List<TrackInfo>();
 
@@ -256,7 +257,7 @@ namespace WebApplication3.Services
                     {
                         if (track.IsAvailable && !string.IsNullOrEmpty(track.DeezerUrl))
                         {
-                            var success = await DownloadSingleTrack(track.DeezerUrl!, playlistDir, format);
+                            var success = await DownloadSingleTrack(track.DeezerUrl!, tempDirectory, format);
                             if (success)
                             {
                                 downloadedCount++;
@@ -286,15 +287,23 @@ namespace WebApplication3.Services
                 if (downloadedCount == 0)
                     throw new Exception("No tracks were downloaded from the Spotify playlist.");
 
-                // 3. Создаем zip из скачанных треков и возвращаем его
-                var result = await CreateZipFromDirectory(playlistDir, $"spotify_playlist_{spotifyPlaylistId}");
+                // Создаем zip в папке music
+                var result = await CreateZipInMusicDirectory(tempDirectory, $"spotify_playlist_{spotifyPlaylistId}");
                 return (result, failedTracks);
             }
-            catch (Exception ex)
+            finally
             {
-                // Очистка в случае ошибки
-                try { Directory.Delete(playlistDir, true); } catch { }
-                throw new Exception($"Error processing Spotify playlist: {ex.Message}", ex);
+                // Всегда очищаем временную директорию
+                try
+                {
+                    if (Directory.Exists(tempDirectory))
+                        Directory.Delete(tempDirectory, true);
+                }
+                catch
+                {
+                    // Логируем ошибку, но не прерываем выполнение
+                    Console.WriteLine("Failed to delete temp directory");
+                }
             }
         }
         public async Task<bool> DownloadSingleTrack(string deezerUrl, string directoryPath, string format = "mp3")
@@ -319,61 +328,33 @@ namespace WebApplication3.Services
             return process.ExitCode == 0;
         }
 
-       
-        public async Task<IActionResult> CreateZipFromDirectory(string directoryPath, string zipName)
-        {
-           
-            try
+        private async Task<IActionResult> CreateZipInMusicDirectory(string sourceDirectory, string zipFileName)
+        { // Создаем ZIP в памяти
+            using var memoryStream = new MemoryStream();
+
+            using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
             {
-                using (var memoryStream = new MemoryStream())
+                // Добавляем все файлы из временной директории в ZIP
+                foreach (var filePath in Directory.GetFiles(sourceDirectory))
                 {
-                    using (var zip = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
-                    {
-                        foreach (var file in Directory.GetFiles(directoryPath))
-                        {
-                            var entry = zip.CreateEntry(Path.GetFileName(file));
-                            using (var entryStream = entry.Open())
-                            using (var fileStream = System.IO.File.OpenRead(file))
-                            {
-                                await fileStream.CopyToAsync(entryStream);
-                            }
-                        }
-                    }
+                    var entryName = Path.GetFileName(filePath);
+                    var entry = archive.CreateEntry(entryName);
 
-                    // Удаляем временную папку
-                    try
-                    {
-                        Directory.Delete(directoryPath, true);
-                    }
-                    catch
-                    {
-                        // Игнорируем ошибки удаления папки
-                    }
-
-                    var fileBytes = memoryStream.ToArray();
-
-                    return new FileContentResult(fileBytes, "application/zip")
-                    {
-                        FileDownloadName = $"{zipName}.zip"
-                    };
-                }    
+                    using var entryStream = entry.Open();
+                    using var fileStream = File.OpenRead(filePath);
+                    await fileStream.CopyToAsync(entryStream);
+                }
             }
-            catch (Exception ex)
+
+            // Получаем байты из memory stream
+            memoryStream.Position = 0;
+            var fileBytes = memoryStream.ToArray();
+
+            // Возвращаем как FileContentResult - файл будет скачан сразу
+            return new FileContentResult(fileBytes, "application/zip")
             {
-                // Очистка в случае ошибки
-                try
-                {
-                    if (Directory.Exists(directoryPath))
-                        Directory.Delete(directoryPath, true);
-                }
-                catch
-                {
-                    // Игнорируем ошибки очистки
-                }
-                throw new Exception($"Error creating zip: {ex.Message}", ex);
-            }
+                FileDownloadName = $"{zipFileName}.zip"
+            };
         }
     }
 }
-
-

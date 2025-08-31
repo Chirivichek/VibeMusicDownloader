@@ -247,9 +247,10 @@ namespace WebApplication3.Pages
             {
                 var (result, failedTracks) = await _musicService.DownloadPlaylistAsync(playlistId, format);
 
+                // Сохраним список неудачных, если хочешь показать их на странице после скачивания
                 FailedTracks = failedTracks;
-                TempData["FailedTracksCount"] = failedTracks.Count.ToString();
 
+                // Всегда возвращаем реальный результат (теперь это RedirectResult на /music/xxx.zip)
                 return result;
             }
             catch (Exception ex)

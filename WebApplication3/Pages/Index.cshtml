@@ -144,42 +144,38 @@
 					<strong>@track.Title</strong>
 					<span class="track-artist">by @track.Artist</span>
 
-					<!-- Показываем статус доступности -->
 					@if (!track.IsAvailable)
 					{
 						<span class="availability-badge unavailable">🚫 Недоступен</span>
-					}
-					@if (!string.IsNullOrEmpty(track.ErrorMessage))
-					{
-						<span class="error-message">(@track.ErrorMessage)</span>
-					}
+						@if (!string.IsNullOrEmpty(track.ErrorMessage))
+						{
+							<span class="error-message">(@track.ErrorMessage)</span>
+						}
 					}
 					else
 					{
-					<span class="availability-badge available">✅ Доступен</span>
+						<span class="availability-badge available">✅ Доступен</span>
 					}
 				</div>
 
 				<div class="track-actions">
 					<a asp-page-handler="Download"
-					asp-route-deezerUrl="@track.DeezerUrl"
-					asp-route-format="mp3"
-					download="@($"{track.Artist} - {track.Title}.mp3")"
-					class="btn btn-track-mp3">
+					   asp-route-deezerUrl="@track.DeezerUrl"
+					   asp-route-format="mp3"
+					   class="btn btn-track-mp3">
 						💾 MP3
 					</a>
 
 					<a asp-page-handler="Download"
-					asp-route-deezerUrl="@track.DeezerUrl"
-					asp-route-format="flac"
-					download="@($"{track.Artist} - {track.Title}.flac")"
+					   asp-route-deezerUrl="@track.DeezerUrl"
+					   asp-route-format="flac"
 					   class="btn btn-track-flac">
 						💾 FLAC
 					</a>
 
 					<a href="@track.Url" target="_blank" class="btn btn-track-listen">
 						🎧 Listen on Spotify
-						</a>
+					</a>
 				</div>
 			</li>
 		}
@@ -222,7 +218,7 @@
 	<ul class="track-list">
 		@foreach (var track in Model.Results)
 		{
-			<li class="track-item @(track.IsAvailable ? "track-unavailable" : "" )">
+			<li class="track-item @(!track.IsAvailable ? "track-unavailable" : "" )">
 				<div class="track-info">
 					<strong>@track.Title</strong>
 					<span class="track-artist">by @track.Artist</span>
@@ -244,7 +240,6 @@
 					<a asp-page-handler="Download"
 					   asp-route-deezerUrl="@track.DeezerUrl"
 					   asp-route-format="mp3"
-					   download="@($"{track.Artist} - {track.Title}.mp3")"
 					   class="btn btn-track-mp3">
 						💾 MP3
 					</a>
@@ -252,9 +247,8 @@
 					<a asp-page-handler="Download"
 					   asp-route-deezerUrl="@track.DeezerUrl"
 					   asp-route-format="flac"
-					   download="@($"{track.Artist} - {track.Title}.flac")"
 					   class="btn btn-track-flac">
-						🎵 FLAC
+						💾 FLAC
 					</a>
 
 					<a href="@track.Url" target="_blank" class="btn btn-spotify">
