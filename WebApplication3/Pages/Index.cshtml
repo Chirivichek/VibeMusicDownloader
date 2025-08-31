@@ -1,0 +1,640 @@
+﻿@page
+@model WebApplication3.Pages.IndexModel
+@using System.Text.Json
+@{
+	// Получаем количество нескачанных треков
+	var failedTracksCount = TempData["FailedTracksCount"] as string;
+	var hasFailedTracks = !string.IsNullOrEmpty(failedTracksCount) && int.Parse(failedTracksCount) > 0;
+}
+
+@{
+	ViewData["Title"] = "Music Downloader";
+}
+
+<h3>Welcome to Music Downloader</h3>
+
+@if (TempData["Error"] != null)
+{
+	<p style="color: red;">@TempData["Error"]</p>
+}
+
+<!-- Поиск треков -->
+<form method="get" class="search-form">
+	<div class="form-group">
+		<input type="text" name="query" placeholder="Введите название трека или артиста"
+		value="@Model.Request.Query["query"]" class="form-control" />
+	</div>
+	<button type="submit" class="btn btn-primary">Поиск треков</button>
+</form>
+
+<!-- Поиск плейлистов -->
+<form method="get" class="search-form">
+	<div class="form-group">
+		<input type="hidden" name="query" value="" /> <!-- Сброс предыдущего поиска треков -->
+		<input type="text" name="playlistUrl" placeholder="Введите ссылку на плейлист Spotify"
+		value="@Model.Request.Query["playlistUrl"]" class="form-control" />
+	</div>
+	<button type="submit" class="btn btn-info">Поиск плейлистов</button>
+</form>
+
+<!-- Примеры ссылок для помощи -->
+<div class="help-text">
+	<small>Примеры ссылок:</small><br />
+	<small>• https://open.spotify.com/playlist/37i9dQZEVXbMDoHDwVN2tF</small><br />
+	<small>• spotify:playlist:37i9dQZEVXbMDoHDwVN2tF</small><br />
+	<small>• или просто ID плейлиста: 37i9dQZEVXbMDoHDwVN2tF</small>
+</div>
+
+<!-- Результаты поиска плейлистов -->
+@if (Model.PlaylistResult.Any() && string.IsNullOrEmpty(Model.SelectedPlaylistId))
+{
+	<h2>Найденные плейлисты</h2>
+	<div class="playlist-grid">
+		@foreach (var playlist in Model.PlaylistResult)
+		{
+			<div class="playlist-card">
+				@if (!string.IsNullOrEmpty(playlist.ImageUrl))
+				{
+					<img src="@playlist.ImageUrl" alt="@playlist.Name" class="playlist-image" />
+				}
+				<div class="playlist-info">
+					<h4>@playlist.Name</h4>
+					<p class="playlist-tracks"> Треков: @playlist.TrackCount</p>
+					<p class="playlist-owner"> Автор: @playlist.Owner</p>
+					<a href="@playlist.Url" target="_blank">Открыть в Spotify</a>
+
+					@if (!string.IsNullOrEmpty(playlist.Description))
+					{
+						<p class="playlist-description">@playlist.Description</p>
+					}
+
+					<div class="playlist-actions">
+						<a asp-page="/Index"
+						asp-route-playlistQuery="@Model.Request.Query["playlistQuery"]"
+						asp-route-playlistId="@playlist.Id"
+						class="btn btn-view">
+							Просмотреть треки
+						</a>
+
+						<a asp-page-handler="DownloadPlaylist"
+						asp-route-playlistId="@playlist.Id"
+						asp-route-format="mp3">
+							Скачать MP3
+						</a>
+
+						<a asp-page-handler="DownloadPlaylist"
+						asp-route-playlistId="@playlist.Id"
+						asp-route-format="flac">
+							Скачать FLAC
+						</a>
+					</div>
+				</div>
+			</div>
+		}
+	</div>
+}
+
+<!-- Треки выбранного плейлиста -->
+@if (Model.PlaylistTracks.Any() && !string.IsNullOrEmpty(Model.SelectedPlaylistId))
+{
+	<h2>🎵 Треки плейлиста</h2>
+
+	<!-- Статистика доступности -->
+	<div class="availability-stats">
+		@{
+			var totalTracks = Model.PlaylistTracks.Count;
+			var availableTracks = Model.PlaylistTracks.Count(t => t.IsAvailable);
+			var unavailableTracks = totalTracks - availableTracks;
+		}
+		<p>
+			Всего треков: <strong>@totalTracks</strong> |
+			Доступно: <span class="text-success"><strong>@availableTracks</strong></span> |
+			Недоступно: <span class="text-danger"><strong>@unavailableTracks</strong></span>
+		</p>
+	</div>
+
+	<div class="back-button">
+		<a href="@Url.Page("Index", new { playlistUrl = Model.Request.Query["playlistUrl"]})"
+		class="btn btn-back">
+			← Назад к результатам плейлистов
+		</a>
+	</div>
+
+	<div class="playlist-download">
+		<a asp-page-handler="DownloadPlaylist"
+		asp-route-playlistId="@Model.SelectedPlaylistId"
+		asp-route-format="mp3"
+		class="btn btn-download-large">
+			💾 Скачать весь плейлист в MP3
+		</a>
+
+		<a asp-page-handler="DownloadPlaylist"
+		asp-route-playlistId="@Model.SelectedPlaylistId"
+		asp-route-format="flac"
+		class="btn btn-download-large">
+			💾 Скачать весь плейлист в FLAC
+		</a>
+	</div>
+
+	<ul class="track-list">
+		@foreach (var track in Model.PlaylistTracks)
+		{
+			<li class="track-item @(!track.IsAvailable ? "track-unavailable" : "")">
+				<div class="track-info">
+					<strong>@track.Title</strong>
+					<span class="track-artist">by @track.Artist</span>
+
+					<!-- Показываем статус доступности -->
+					@if (!track.IsAvailable)
+					{
+						<span class="availability-badge unavailable">🚫 Недоступен</span>
+					}
+					@if (!string.IsNullOrEmpty(track.ErrorMessage))
+					{
+						<span class="error-message">(@track.ErrorMessage)</span>
+					}
+					}
+					else
+					{
+					<span class="availability-badge available">✅ Доступен</span>
+					}
+				</div>
+
+				<div class="track-actions">
+					<a asp-page-handler="Download"
+					asp-route-deezerUrl="@track.DeezerUrl"
+					asp-route-format="mp3"
+					download="@($"{track.Artist} - {track.Title}.mp3")"
+					class="btn btn-track-mp3">
+						💾 MP3
+					</a>
+
+					<a asp-page-handler="Download"
+					asp-route-deezerUrl="@track.DeezerUrl"
+					asp-route-format="flac"
+					download="@($"{track.Artist} - {track.Title}.flac")"
+					   class="btn btn-track-flac">
+						💾 FLAC
+					</a>
+
+					<a href="@track.Url" target="_blank" class="btn btn-track-listen">
+						🎧 Listen on Spotify
+						</a>
+				</div>
+			</li>
+		}
+	</ul>
+}
+
+<!-- Список нескачанных треков -->
+@if (Model.FailedTracks.Any() || hasFailedTracks)
+{
+	<div class="failed-tracks-section">
+		<h3>🚫 Треки, недоступные для скачивания:</h3>
+
+		@if (Model.FailedTracks.Any())
+		{
+			<ul class="failed-tracks-list">
+				@foreach (var track in Model.FailedTracks)
+				{
+					<li class="failed-track-item">
+						<strong>@track.Title</strong> by @track.Artist
+						@if (!string.IsNullOrEmpty(track.ErrorMessage))
+						{
+							<span class="failed-reason"> - @track.ErrorMessage</span>
+						}
+					</li>
+				}
+			</ul>
+		}
+		else if (hasFailedTracks)
+		{
+			<p>@failedTracksCount треков не были скачаны из-за ошибок.</p>
+		}
+	</div>
+}
+
+<!-- Результаты поиска треков -->
+@if (Model.Results.Any() && string.IsNullOrEmpty(Model.Request.Query["playlistUrl"]) && string.IsNullOrEmpty(Model.SelectedPlaylistId))
+{
+	<h2>🎵 Найденные треки</h2>
+
+	<ul class="track-list">
+		@foreach (var track in Model.Results)
+		{
+			<li class="track-item @(track.IsAvailable ? "track-unavailable" : "" )">
+				<div class="track-info">
+					<strong>@track.Title</strong>
+					<span class="track-artist">by @track.Artist</span>
+					@if (!track.IsAvailable)
+					{
+						<span class="availability-badge unavailable">🚫 Недоступен</span>
+						@if (!string.IsNullOrEmpty(track.ErrorMessage))
+						{
+							<span class="error-message">(@track.ErrorMessage)</span>
+						}
+					}
+					else
+					{
+						<span class="availability-badge available">✅ Доступен</span>
+					}
+				</div>
+
+				<div class="track-actions">
+					<a asp-page-handler="Download"
+					   asp-route-deezerUrl="@track.DeezerUrl"
+					   asp-route-format="mp3"
+					   download="@($"{track.Artist} - {track.Title}.mp3")"
+					   class="btn btn-track-mp3">
+						💾 MP3
+					</a>
+
+					<a asp-page-handler="Download"
+					   asp-route-deezerUrl="@track.DeezerUrl"
+					   asp-route-format="flac"
+					   download="@($"{track.Artist} - {track.Title}.flac")"
+					   class="btn btn-track-flac">
+						🎵 FLAC
+					</a>
+
+					<a href="@track.Url" target="_blank" class="btn btn-spotify">
+						🎧 Spotify
+					</a>
+				</div>
+			</li>
+		}
+	</ul>
+}
+else if (!string.IsNullOrEmpty(Model.Request.Query["query"]) && string.IsNullOrEmpty(Model.Request.Query["playlistUrl"]))
+{
+	<div class="no-results">
+		<p>Треки не найдены для "@Model.Request.Query["query"]"</p>
+	</div>
+}
+
+
+@* @if (Model.Results.Any())
+{
+	<h2>Search Results</h2>
+	<ul>
+		@foreach (var track in Model.Results)
+		{
+			<li>
+				<strong>@track.Title</strong> by @track.Artist
+				@if (!string.IsNullOrEmpty(track.DeezerUrl))
+				{
+
+					<div style="display: inline-block; margin-left: 10px;">
+						<select id="format-@track.DeezerId" style="padding: 3px; margin-right: 5px;">
+							<option value="mp3">MP3 320kbps</option>
+							<option value="flac">FLAC Lossless</option>
+						</select>
+
+						<button onclick="downloadTrack('@track.DeezerUrl', '@track.Artist', '@track.Title', '@track.DeezerId')"
+								style="padding: 3px 8px; background:#007bff; color:white; border:none; border-radius:3px;">
+							💾 Скачать
+						</button>
+					</div>
+
+				}
+				else
+				{
+					<span style="color: gray;">Download not available</span>
+				}
+				<a href="@track.Url" target="_blank">Listen on Spotify</a>
+			</li>
+
+		}
+	</ul>
+}
+else if (!string.IsNullOrWhiteSpace(Model.Request.Query["query"]))
+{
+	<p>No tracks found for "@Model.Request.Query["query"]".</p>
+} *@
+
+<style>
+	/* Стили для доступности */
+	.availability-stats {
+		background-color: #e9ecef;
+		padding: 10px 15px;
+		border-radius: 5px;
+		margin-bottom: 20px;
+		font-size: 14px;
+	}
+
+	.text-success {
+		color: #28a745 !important;
+	}
+
+	.text-danger {
+		color: #dc3545 !important;
+	}
+
+	.availability-badge {
+		padding: 2px 8px;
+		border-radius: 12px;
+		font-size: 12px;
+		margin-left: 10px;
+	}
+
+		.availability-badge.available {
+			background-color: #d4edda;
+			color: #155724;
+		}
+
+		.availability-badge.unavailable {
+			background-color: #f8d7da;
+			color: #721c24;
+		}
+
+	.error-message {
+		color: #6c757d;
+		font-size: 12px;
+		margin-left: 5px;
+		font-style: italic;
+	}
+
+	.track-unavailable {
+		opacity: 0.7;
+		background-color: #f8f9fa;
+		border-left: 4px solid #dc3545;
+	}
+
+	.btn-disabled {
+		background-color: #6c757d !important;
+		color: white !important;
+		cursor: not-allowed !important;
+		opacity: 0.6;
+	}
+
+	/* Стили для списка нескачанных треков */
+	.failed-tracks-section {
+		margin-top: 30px;
+		padding: 20px;
+		background-color: #fff3cd;
+		border: 1px solid #ffeaa7;
+		border-radius: 5px;
+	}
+
+		.failed-tracks-section h3 {
+			color: #856404;
+			margin-bottom: 15px;
+		}
+
+	.failed-tracks-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+	}
+
+	.failed-track-item {
+		padding: 8px 0;
+		border-bottom: 1px solid #ffeaa7;
+	}
+
+		.failed-track-item:last-child {
+			border-bottom: none;
+		}
+
+	.failed-reason {
+		color: #6c757d;
+		font-size: 14px;
+		font-style: italic;
+	}
+	/* Общие стили */
+	.search-form {
+		margin: 20px 0;
+		padding: 15px;
+		background: #f8f9fa;
+		border-radius: 8px;
+	}
+
+	.form-group {
+		margin-bottom: 10px;
+	}
+
+	.form-control {
+		width: 100%;
+		max-width: 400px;
+		padding: 10px;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+	}
+
+	/* Кнопки */
+	.btn {
+		display: inline-block;
+		padding: 8px 16px;
+		margin: 4px;
+		border: none;
+		border-radius: 4px;
+		text-decoration: none;
+		font-size: 14px;
+		cursor: pointer;
+		transition: background-color 0.3s;
+	}
+
+	.btn-primary {
+		background-color: #007bff;
+		color: white;
+	}
+
+	.btn-info {
+		background-color: #17a2b8;
+		color: white;
+	}
+
+	.btn-view {
+		background-color: #6c757d;
+		color: white;
+	}
+
+	.btn-download-mp3 {
+		background-color: #28a745;
+		color: white;
+	}
+
+	.btn-download-flac {
+		background-color: #6610f2;
+		color: white;
+	}
+
+	.btn-back {
+		background-color: #6c757d;
+		color: white;
+	}
+
+	.btn-download-large {
+		background-color: #28a745;
+		color: white;
+		padding: 12px 24px;
+		font-size: 16px;
+	}
+
+	.btn-download-large-flac {
+		background-color: #6610f2;
+		color: white;
+		padding: 12px 24px;
+		font-size: 16px;
+	}
+
+	.btn-track-mp3 {
+		background-color: #28a745;
+		color: white;
+	}
+
+	.btn-track-flac {
+		background-color: #6610f2;
+		color: white;
+	}
+
+	.btn-spotify {
+		background-color: #1db954;
+		color: white;
+	}
+
+	.btn:hover {
+		opacity: 0.9;
+		color: white;
+		text-decoration: none;
+	}
+
+	/* Плейлисты */
+	.playlist-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		gap: 20px;
+		margin: 20px 0;
+	}
+
+	.playlist-card {
+		border: 1px solid #ddd;
+		border-radius: 8px;
+		overflow: hidden;
+		background: white;
+	}
+
+	.playlist-image {
+		width: 100%;
+		height: 200px;
+		object-fit: cover;
+	}
+
+	.playlist-info {
+		padding: 15px;
+	}
+
+	.playlist-owner {
+		color: #666;
+		font-size: 14px;
+	}
+
+	.playlist-tracks {
+		color: #007bff;
+		font-weight: bold;
+	}
+
+	.playlist-description {
+		color: #666;
+		font-style: italic;
+		margin: 10px 0;
+	}
+
+	.playlist-actions {
+		margin-top: 15px;
+	}
+
+	/* Треки */
+	.track-list {
+		list-style: none;
+		padding: 0;
+		margin: 20px 0;
+	}
+
+	.track-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 12px;
+		border: 1px solid #eee;
+		border-radius: 6px;
+		margin: 8px 0;
+		background: white;
+	}
+
+	.track-info {
+		flex: 1;
+	}
+
+	.track-artist {
+		color: #666;
+		font-size: 14px;
+	}
+
+	.track-actions {
+		display: flex;
+		gap: 8px;
+	}
+
+	/* Прочее */
+	.back-button {
+		margin: 20px 0;
+	}
+
+	.playlist-download {
+		margin: 20px 0;
+		text-align: center;
+	}
+
+	.no-results {
+		text-align: center;
+		color: #666;
+		margin: 40px 0;
+	}
+
+	.alert {
+		padding: 15px;
+		border-radius: 4px;
+		margin: 20px 0;
+	}
+
+	.alert-danger {
+		background-color: #f8d7da;
+		color: #721c24;
+		border: 1px solid #f5c6cb;
+	}
+
+	.footer {
+		text-align: center;
+		margin-top: 40px;
+		padding: 20px;
+		color: #666;
+		border-top: 1px solid #eee;
+	}
+</style>
+
+<script>
+	function downloadTrack(deezerUrl, artist, title, deezerId) {
+		var formatSelect = document.getElementById('format-' + deezerId);
+		var format = formatSelect.value;
+
+		var filename = format === 'flac'
+			? artist + ' - ' + title + '.flac'
+			: artist + ' - ' + title + '.mp3';
+
+		var url = '/?handler=Download&deezerUrl=' + encodeURIComponent(deezerUrl) + '&format=' + format;
+
+		// Создаем временную ссылку для скачивания
+		var a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		a.style.display = 'none';
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+	}
+</script>
+
+@section Footer {
+		 Copyright© MusicDownloader.com, @DateTime.Now.Year. All rights reserved
+}

@@ -1,0 +1,20 @@
+{
+  "downloadLocation": "D:\\VSproject\\WebApplication3\\WebApplication3\\..\\wwwroot\\music",
+  "tracknameTemplate": "%artist% - %title%",
+  "albumTracknameTemplate": "%artist% - %title%",
+  "createAlbumFolder": false,
+  "createSingleFolder": false,
+  "createStructure": false,
+  "embeddedArtworkSize": 500,
+  "localArtworkSize": 1000,
+  "saveArtwork": false,
+  "overwriteFile": "n",
+  "createM3U8File": false,
+  "playlistFilenameTemplate": "playlist",
+  "syncedLyrics": false,
+  "addLyrics": false,
+  "addToDatabase": false,
+  "checkForUpdates": false,
+  "maxBitrate": "3",
+  "fallbackBitrate": true
+}
