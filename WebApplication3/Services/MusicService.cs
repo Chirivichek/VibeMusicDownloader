@@ -4,13 +4,14 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.FileProviders.Physical;
 using Newtonsoft.Json.Linq;
+using RussianTransliteration;
 using WebApplication3.Pages;
 namespace WebApplication3.Services
 {
     public class MusicService
     {
         private readonly HttpClient _httpClient;
-        private readonly SpotifyService _spotifyService;
+        private readonly SpotifyService _spotifyService; 
 
         public bool CheckDownloadDirectory()
         {
@@ -44,64 +45,229 @@ namespace WebApplication3.Services
             _httpClient = httpClient;
             _spotifyService = spotifyService;
         }
-        // Метод для получения ID трека в Deezer
-        public async Task<string?> GetDeezerTrackId(string title, string artist)
+        public async Task<List<TrackInfo>> SearchDeezerAsync(string query)
         {
+            var result = new List<TrackInfo>();
+
             try
             {
-                // Кодируем параметры для URL
-                var encodedArtist = Uri.EscapeDataString(artist);
-                var encodedTitle = Uri.EscapeDataString(title);
-                var searchUrl = $"https://api.deezer.com/search?q=artist:\"{encodedArtist}\" track:\"{encodedTitle}\"&limit=1";
+                var encodedQuery = Uri.EscapeDataString(query);
+                var searchUrl = $"https://api.deezer.com/search?q={encodedQuery}&limit=20";
 
                 var response = await _httpClient.GetStringAsync(searchUrl);
                 var json = JObject.Parse(response);
 
-                // Проверяем наличие данных
-                if (json["data"] == null)
+                if (json["data"] != null)
                 {
-                    return null;
+                    foreach (var item in json["data"])
+                    {
+                        result.Add(new TrackInfo
+                        {
+                            Title = item["title"]?.ToString(),
+                            Artist = item["artist"]?["name"]?.ToString(),
+                            DeezerId = item["id"]?.ToString(),
+                            DeezerUrl = item["link"]?.ToString(),
+                            IsAvailable = true
+                        });
+                    }
                 }
-
-                var dataArray = json["data"] as JArray;
-                if (dataArray == null || dataArray.Count == 0)
-                {
-                    Console.WriteLine($"No tracks found on Deezer for: {artist} - {title}");
-                    return null;
-                }
-
-
-                var firstTrack = dataArray[0];
-                if (firstTrack == null || firstTrack["id"] == null)
-                {
-                    Console.WriteLine($"No valid track ID found in Deezer response for: {artist} - {title}");
-                    return null;
-                }
-                var trackId = firstTrack["id"]?.ToString();
-                if (string.IsNullOrEmpty(trackId))
-                {
-                    Console.WriteLine($"Empty track ID in Deezer response for: {artist} - {title}");
-                    return null;
-                }
-                Console.WriteLine($"Found Deezer track ID: {trackId} for {artist} - {title}");
-                return trackId;
             }
-            catch (HttpRequestException ex)
+            catch (Exception ex)
             {
-                Console.WriteLine($"HTTP error getting Deezer track ID for {artist} - {title}: {ex.Message}");
+                Console.WriteLine($"Error searching Deezer: {ex.Message}");
+            }
+
+            return result;
+        }
+
+        public async Task<TrackInfo?> GetDeezerTrackById(string deezerId)
+        {
+            try
+            {
+                var trackUrl = $"https://api.deezer.com/track/{deezerId}";
+                var response = await _httpClient.GetStringAsync(trackUrl);
+                var json = JObject.Parse(response);
+
+                return new TrackInfo
+                {
+                    Title = json["title"]?.ToString(),
+                    Artist = json["artist"]?["name"]?.ToString(),
+                    DeezerId = json["id"]?.ToString(),
+                    DeezerUrl = json["link"]?.ToString(),
+                    IsAvailable = true
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error getting Deezer track by ID: {ex.Message}");
                 return null;
             }
-            catch (JsonException ex)
+        }
+        // Метод для получения ID трека в Deezer
+        public async Task<string?> GetDeezerTrackId(string title, string artist, string? album = null, int? durationMs = null)
+        {
+            try
             {
-                Console.WriteLine($"JSON parsing error for {artist} - {title}: {ex.Message}");
+                Console.WriteLine($"Searching Deezer for: {artist} - {title}");
+
+                // 1. Пробуем оригинальный поиск
+                var deezerId = await SearchDeezerWithQuery(title, artist, album, durationMs);
+                if (deezerId != null) return deezerId;
+
+                // 2. Пробуем транслитерировать английские названия в русские
+                var russianTitle = RussianTransliterator.GetTransliteration(title);
+                var russianArtist = RussianTransliterator.GetTransliteration(artist);
+
+                if (russianTitle != title || russianArtist != artist)
+                {
+                    deezerId = await SearchDeezerWithQuery(russianTitle, russianArtist, album, durationMs);
+                    if (deezerId != null) return deezerId;
+                }
+
                 return null;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Unexpected error getting Deezer track ID for {artist} - {title}: {ex.Message}");
+                Console.WriteLine($"Error in GetDeezerTrackId: {ex.Message}");
                 return null;
             }
         }
+        public async Task<DeezerPlaylistInfo?> GetDeezerPlaylistInfo(string playlistId)
+        {
+            try
+            {
+                var playlistUrl = $"https://api.deezer.com/playlist/{playlistId}";
+                var response = await _httpClient.GetStringAsync(playlistUrl);
+                var json = JObject.Parse(response);
+
+                return new DeezerPlaylistInfo
+                {
+                    Title = json["title"]?.ToString(),
+                    Description = json["description"]?.ToString(),
+                    ImageUrl = json["picture_medium"]?.ToString(),
+                    Owner = json["creator"]?["name"]?.ToString(),
+                    TrackCount = json["nb_tracks"]?.ToObject<int>() ?? 0,
+                    Url = json["link"]?.ToString()
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error getting Deezer playlist info: {ex.Message}");
+                return null;
+            }
+        }
+
+        public async Task<List<DeezerTrack>> GetDeezerPlaylistTracks(string playlistId)
+        {
+            var tracks = new List<DeezerTrack>();
+
+            try
+            {
+                var tracksUrl = $"https://api.deezer.com/playlist/{playlistId}/tracks";
+                var response = await _httpClient.GetStringAsync(tracksUrl);
+                var json = JObject.Parse(response);
+
+                if (json["data"] != null)
+                {
+                    foreach (var item in json["data"])
+                    {
+                        tracks.Add(new DeezerTrack
+                        {
+                            Title = item["title"]?.ToString(),
+                            Artist = item["artist"]?["name"]?.ToString(),
+                            DeezerId = item["id"]?.ToString(),
+                            DeezerUrl = item["link"]?.ToString()
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error getting Deezer playlist tracks: {ex.Message}");
+            }
+
+            return tracks;
+        }
+
+        private async Task<string?> SearchDeezerWithQuery(string title, string artist, string? album, int? durationMs)
+        {
+
+            try
+            {
+                var cleanTitle = CleanTrackTitle(title);
+                var cleanArtist = CleanArtistName(artist);
+
+                var searchQuery = $"artist:\"{cleanArtist}\" track:\"{cleanTitle}\"";
+                if (!string.IsNullOrEmpty(album))
+                {
+                    searchQuery += $" album:\"{CleanAlbumName(album)}\"";
+                }
+
+                var encodedQuery = Uri.EscapeDataString(searchQuery);
+                var searchUrl = $"https://api.deezer.com/search?q={encodedQuery}&limit=5";
+
+                var response = await _httpClient.GetStringAsync(searchUrl);
+                var json = JObject.Parse(response);
+
+                if (json["data"] == null || !json["data"].Any())
+                    return null;
+
+                var targetDurationSec = durationMs.HasValue ? (int?)(durationMs.Value / 1000) : null;
+
+                // Ищем лучший матч по длительности
+                foreach (var track in json["data"])
+                {
+                    var trackDuration = track["duration"]?.ToObject<int>() ?? 0;
+                    if (targetDurationSec.HasValue && Math.Abs(trackDuration - targetDurationSec.Value) <= 5)
+                    {
+                        return track["id"]?.ToString();
+                    }
+                }
+
+                // Если не нашли по длительности, возвращаем первый результат
+                return json["data"][0]["id"]?.ToString();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+
+        private string CleanTrackTitle(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return title;
+
+            title = System.Text.RegularExpressions.Regex.Replace(title, @"\([^)]*\)", "").Trim();
+            title = System.Text.RegularExpressions.Regex.Replace(title, @"\[[^\]]*\]", "").Trim();
+
+            var toRemove = new[] { "- Radio Edit", "- Original Mix", "feat.", "ft.", "vs.", "(Official Video)", "[Official Audio]" };
+            foreach (var remove in toRemove)
+            {
+                title = title.Replace(remove, "", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return title.Trim();
+        }
+
+        private string CleanArtistName(string artist)
+        {
+            if (string.IsNullOrEmpty(artist)) return artist;
+
+            var featIndex = artist.IndexOf("feat", StringComparison.OrdinalIgnoreCase);
+            if (featIndex > 0) return artist.Substring(0, featIndex).Trim();
+
+            featIndex = artist.IndexOf("ft", StringComparison.OrdinalIgnoreCase);
+            if (featIndex > 0) return artist.Substring(0, featIndex).Trim();
+
+            return artist.Trim();
+        }
+
+        private string CleanAlbumName(string album)
+        {
+            return CleanTrackTitle(album);
+        }
+
         // Метод для получения ссылки на трек в Deezer
         public async Task<string?> GetDeezerTrackUrl(string title, string artist)
         {
@@ -132,8 +298,6 @@ namespace WebApplication3.Services
                     {
                         Title = track.Name,
                         Artist = string.Join(", ", track.Artists.Select(a => a.Name)),
-                        Url = track.ExternalUrls["spotify"],
-                        Isrc = track.ExternalIds["isrc"],
                         IsAvailable = true
                     };
 
@@ -302,6 +466,89 @@ namespace WebApplication3.Services
                 catch
                 {
                     // Логируем ошибку, но не прерываем выполнение
+                    Console.WriteLine("Failed to delete temp directory");
+                }
+            }
+        }
+        public async Task<(IActionResult Result, List<TrackInfo> FailedTracks)> DownloadDeezerPlaylistAsync(string deezerPlaylistId, string format = "mp3")
+        {
+            // Создаем временную директорию
+            var tempDirectory = Path.Combine(Path.GetTempPath(), $"deezer_playlist_{deezerPlaylistId}_{Guid.NewGuid().ToString("N").Substring(0, 8)}");
+            Directory.CreateDirectory(tempDirectory);
+
+            var failedTracks = new List<TrackInfo>();
+
+            try
+            {
+                // Получаем треки из Deezer плейлиста
+                var deezerTracks = await GetDeezerPlaylistTracks(deezerPlaylistId);
+
+                if (deezerTracks.Count == 0)
+                    throw new Exception("No tracks found in the Deezer playlist.");
+
+                // Скачиваем каждый трек
+                var downloadedCount = 0;
+
+                foreach (var track in deezerTracks)
+                {
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(track.DeezerUrl))
+                        {
+                            var success = await DownloadSingleTrack(track.DeezerUrl, tempDirectory, format);
+                            if (success)
+                            {
+                                downloadedCount++;
+                            }
+                            else
+                            {
+                                var trackInfo = new TrackInfo
+                                {
+                                    Title = track.Title,
+                                    Artist = track.Artist,
+                                    DeezerId = track.DeezerId,
+                                    DeezerUrl = track.DeezerUrl,
+                                    IsAvailable = false,
+                                    ErrorMessage = "Ошибка скачивания"
+                                };
+                                failedTracks.Add(trackInfo);
+                            }
+                        }
+                        await Task.Delay(1000); // Пауза между скачиваниями
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error downloading {track.Title}: {ex.Message}");
+                        var trackInfo = new TrackInfo
+                        {
+                            Title = track.Title,
+                            Artist = track.Artist,
+                            DeezerId = track.DeezerId,
+                            DeezerUrl = track.DeezerUrl,
+                            IsAvailable = false,
+                            ErrorMessage = ex.Message
+                        };
+                        failedTracks.Add(trackInfo);
+                    }
+                }
+
+                if (downloadedCount == 0)
+                    throw new Exception("No tracks were downloaded from the Deezer playlist.");
+
+                // Создаем ZIP архив
+                var result = await CreateZipInMusicDirectory(tempDirectory, $"deezer_playlist_{deezerPlaylistId}");
+                return (result, failedTracks);
+            }
+            finally
+            {
+                // Очищаем временную директорию
+                try
+                {
+                    if (Directory.Exists(tempDirectory))
+                        Directory.Delete(tempDirectory, true);
+                }
+                catch
+                {
                     Console.WriteLine("Failed to delete temp directory");
                 }
             }

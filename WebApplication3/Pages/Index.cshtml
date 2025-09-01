@@ -2,185 +2,228 @@
 @model WebApplication3.Pages.IndexModel
 @using System.Text.Json
 @{
-	// Получаем количество нескачанных треков
-	var failedTracksCount = TempData["FailedTracksCount"] as string;
-	var hasFailedTracks = !string.IsNullOrEmpty(failedTracksCount) && int.Parse(failedTracksCount) > 0;
+    // Получаем количество нескачанных треков
+    var failedTracksCount = TempData["FailedTracksCount"] as string;
+    var hasFailedTracks = !string.IsNullOrEmpty(failedTracksCount) && int.Parse(failedTracksCount) > 0;
 }
 
 @{
-	ViewData["Title"] = "Music Downloader";
+    ViewData["Title"] = "Music Downloader";
 }
 
-<h3>Welcome to Music Downloader</h3>
+<h3>Welcome to Vibe Music Downloader</h3>
 
 @if (TempData["Error"] != null)
 {
-	<p style="color: red;">@TempData["Error"]</p>
+    <p style="color: red;">@TempData["Error"]</p>
 }
 
 <!-- Поиск треков -->
 <form method="get" class="search-form">
-	<div class="form-group">
-		<input type="text" name="query" placeholder="Введите название трека или артиста"
-		value="@Model.Request.Query["query"]" class="form-control" />
-	</div>
-	<button type="submit" class="btn btn-primary">Поиск треков</button>
+    <div class="form-group">
+        <input type="text" name="query" placeholder="Введите название трека или артиста"
+               value="@Model.Request.Query["query"]" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-primary">Поиск треков</button>
 </form>
 
 <!-- Поиск плейлистов -->
 <form method="get" class="search-form">
-	<div class="form-group">
-		<input type="hidden" name="query" value="" /> <!-- Сброс предыдущего поиска треков -->
-		<input type="text" name="playlistUrl" placeholder="Введите ссылку на плейлист Spotify"
-		value="@Model.Request.Query["playlistUrl"]" class="form-control" />
-	</div>
-	<button type="submit" class="btn btn-info">Поиск плейлистов</button>
+    <div class="form-group">
+        <input type="hidden" name="query" value="" /> <!-- Сброс предыдущего поиска треков -->
+        <input type="text" name="playlistUrl" placeholder="Введите ссылку на плейлист Spotify"
+               value="@Model.Request.Query["playlistUrl"]" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-info">Поиск плейлистов</button>
 </form>
 
-<!-- Примеры ссылок для помощи -->
-<div class="help-text">
-	<small>Примеры ссылок:</small><br />
-	<small>• https://open.spotify.com/playlist/37i9dQZEVXbMDoHDwVN2tF</small><br />
-	<small>• spotify:playlist:37i9dQZEVXbMDoHDwVN2tF</small><br />
-	<small>• или просто ID плейлиста: 37i9dQZEVXbMDoHDwVN2tF</small>
-</div>
+<!-- Поиск плейлистов Deezer -->
+<form method="get" class="search-form">
+    <div class="form-group">
+        <input type="hidden" name="query" value="" />
+        <input type="hidden" name="playlistUrl" value="" />
+        <input type="text" name="deezerPlaylistUrl" placeholder="Введите ссылку на плейлист Deezer"
+               value="@Model.Request.Query["deezerPlaylistUrl"]" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-success">Загрузить Deezer плейлист</button>
+</form>
 
 <!-- Результаты поиска плейлистов -->
 @if (Model.PlaylistResult.Any() && string.IsNullOrEmpty(Model.SelectedPlaylistId))
 {
-	<h2>Найденные плейлисты</h2>
-	<div class="playlist-grid">
-		@foreach (var playlist in Model.PlaylistResult)
-		{
-			<div class="playlist-card">
-				@if (!string.IsNullOrEmpty(playlist.ImageUrl))
-				{
-					<img src="@playlist.ImageUrl" alt="@playlist.Name" class="playlist-image" />
-				}
-				<div class="playlist-info">
-					<h4>@playlist.Name</h4>
-					<p class="playlist-tracks"> Треков: @playlist.TrackCount</p>
-					<p class="playlist-owner"> Автор: @playlist.Owner</p>
-					<a href="@playlist.Url" target="_blank">Открыть в Spotify</a>
+    <h2>Найденные плейлисты</h2>
+    <div class="playlist-grid">
+        @foreach (var playlist in Model.PlaylistResult)
+        {
+            <div class="playlist-card">
+                @if (!string.IsNullOrEmpty(playlist.ImageUrl))
+                {
+                    <img src="@playlist.ImageUrl" alt="@playlist.Name" class="playlist-image" />
+                }
+                <div class="playlist-info">
+                    <h4>@playlist.Name</h4>
+                    <p class="playlist-tracks"> Треков: @playlist.TrackCount</p>
+                    <p class="playlist-owner"> Автор: @playlist.Owner</p>
+                    <a href="@playlist.Url" target="_blank">Открыть в @(playlist.IsDeezerPlaylist ? "Deezer" : "Spotify")</a>
 
-					@if (!string.IsNullOrEmpty(playlist.Description))
-					{
-						<p class="playlist-description">@playlist.Description</p>
-					}
+                    @if (!string.IsNullOrEmpty(playlist.Description))
+                    {
+                        <p class="playlist-description">@playlist.Description</p>
+                    }
 
-					<div class="playlist-actions">
-						<a asp-page="/Index"
-						asp-route-playlistQuery="@Model.Request.Query["playlistQuery"]"
-						asp-route-playlistId="@playlist.Id"
-						class="btn btn-view">
-							Просмотреть треки
-						</a>
+                    <div class="playlist-actions">
+                        <!-- Кнопка просмотра треков -->
+                        <a asp-page="/Index"
+                           asp-route-playlistId="@playlist.Id"
+                           class="btn btn-view">
+                            Просмотреть треки
+                        </a>
 
-						<a asp-page-handler="DownloadPlaylist"
-						asp-route-playlistId="@playlist.Id"
-						asp-route-format="mp3">
-							Скачать MP3
-						</a>
+                        @if (playlist.IsDeezerPlaylist)
+                        {
+                            <!-- Кнопки для Deezer -->
+							<a asp-page-handler="DownloadPlaylist"
+                               asp-route-playlistId="@playlist.Id"
+                               asp-route-format="mp3"
+                               class="btn btn-success">
+                                Скачать MP3 (Deezer)
+                            </a>
 
-						<a asp-page-handler="DownloadPlaylist"
-						asp-route-playlistId="@playlist.Id"
-						asp-route-format="flac">
-							Скачать FLAC
-						</a>
-					</div>
-				</div>
-			</div>
-		}
-	</div>
+                            <a asp-page-handler="DownloadPlaylist"
+                               asp-route-playlistId="@playlist.Id"
+                               asp-route-format="flac"
+                               class="btn btn-info">
+                                Скачать FLAC (Deezer)
+                            </a>
+                        }
+                        else
+                        {
+                            <!-- Кнопки для Spotify -->
+                            <a asp-page-handler="DownloadPlaylist"
+                               asp-route-playlistId="@playlist.Id"
+                               asp-route-format="mp3"
+                               class="btn btn-download-mp3">
+                                Скачать MP3
+                            </a>
+
+                            <a asp-page-handler="DownloadPlaylist"
+                               asp-route-playlistId="@playlist.Id"
+                               asp-route-format="flac"
+                               class="btn btn-download-flac">
+                                Скачать FLAC
+                            </a>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
 }
 
 <!-- Треки выбранного плейлиста -->
 @if (Model.PlaylistTracks.Any() && !string.IsNullOrEmpty(Model.SelectedPlaylistId))
 {
-	<h2>🎵 Треки плейлиста</h2>
+    <h2>🎵 Треки плейлиста</h2>
 
-	<!-- Статистика доступности -->
-	<div class="availability-stats">
-		@{
-			var totalTracks = Model.PlaylistTracks.Count;
-			var availableTracks = Model.PlaylistTracks.Count(t => t.IsAvailable);
-			var unavailableTracks = totalTracks - availableTracks;
-		}
-		<p>
-			Всего треков: <strong>@totalTracks</strong> |
-			Доступно: <span class="text-success"><strong>@availableTracks</strong></span> |
-			Недоступно: <span class="text-danger"><strong>@unavailableTracks</strong></span>
-		</p>
-	</div>
+    <!-- Статистика доступности -->
+    <div class="availability-stats">
+        @{
+            var totalTracks = Model.PlaylistTracks.Count;
+            var availableTracks = Model.PlaylistTracks.Count(t => t.IsAvailable);
+            var unavailableTracks = totalTracks - availableTracks;
+        }
+        <p>
+            Всего треков: <strong>@totalTracks</strong> |
+            Доступно: <span class="text-success"><strong>@availableTracks</strong></span> |
+            Недоступно: <span class="text-danger"><strong>@unavailableTracks</strong></span>
+        </p>
+    </div>
 
-	<div class="back-button">
-		<a href="@Url.Page("Index", new { playlistUrl = Model.Request.Query["playlistUrl"]})"
-		class="btn btn-back">
-			← Назад к результатам плейлистов
-		</a>
-	</div>
+    <div class="back-button">
+        <a href="@Url.Page("Index", new { playlistUrl = Model.Request.Query["playlistUrl"]})"
+           class="btn btn-back">
+            ← Назад к результатам плейлистов
+        </a>
+    </div>
 
-	<div class="playlist-download">
-		<a asp-page-handler="DownloadPlaylist"
-		asp-route-playlistId="@Model.SelectedPlaylistId"
-		asp-route-format="mp3"
-		class="btn btn-download-large">
-			💾 Скачать весь плейлист в MP3
-		</a>
+    <!-- Кнопки скачивания всего плейлиста - ПЕРЕМЕЩЕНЫ СЮДА -->
+    <div class="playlist-download">
+        @if (Model.IsDeezerPlaylist)
+        {
+            <h4>Скачать Deezer плейлист:</h4>
+			<a asp-page-handler="DownloadDeezerPlaylist"
+               asp-route-playlistId="@Model.SelectedPlaylistId"
+               asp-route-format="mp3"
+               class="btn btn-success">
+                💾 Скачать MP3 (Deezer)
+            </a>
 
-		<a asp-page-handler="DownloadPlaylist"
-		asp-route-playlistId="@Model.SelectedPlaylistId"
-		asp-route-format="flac"
-		class="btn btn-download-large">
-			💾 Скачать весь плейлист в FLAC
-		</a>
-	</div>
+			<a asp-page-handler="DownloadDeezerPlaylist"
+               asp-route-playlistId="@Model.SelectedPlaylistId"
+               asp-route-format="flac"
+               class="btn btn-info">
+                💾 Скачать FLAC (Deezer)
+            </a>
+        }
+        else
+        {
+            <a asp-page-handler="DownloadPlaylist"
+               asp-route-playlistId="@Model.SelectedPlaylistId"
+               asp-route-format="mp3"
+               class="btn btn-download-large">
+                💾 Скачать весь плейлист в MP3
+            </a>
 
-	<ul class="track-list">
-		@foreach (var track in Model.PlaylistTracks)
-		{
-			<li class="track-item @(!track.IsAvailable ? "track-unavailable" : "")">
-				<div class="track-info">
-					<strong>@track.Title</strong>
-					<span class="track-artist">by @track.Artist</span>
+            <a asp-page-handler="DownloadPlaylist"
+               asp-route-playlistId="@Model.SelectedPlaylistId"
+               asp-route-format="flac"
+               class="btn btn-download-large">
+                💾 Скачать весь плейлист в FLAC
+            </a>
+        }
+    </div>
 
-					@if (!track.IsAvailable)
-					{
-						<span class="availability-badge unavailable">🚫 Недоступен</span>
-						@if (!string.IsNullOrEmpty(track.ErrorMessage))
-						{
-							<span class="error-message">(@track.ErrorMessage)</span>
-						}
-					}
-					else
-					{
-						<span class="availability-badge available">✅ Доступен</span>
-					}
-				</div>
+    <ul class="track-list">
+        @foreach (var track in Model.PlaylistTracks)
+        {
+            <li class="track-item @(!track.IsAvailable ? "track-unavailable" : "")">
+                <div class="track-info">
+                    <strong>@track.Title</strong>
+                    <span class="track-artist">by @track.Artist</span>
 
-				<div class="track-actions">
-					<a asp-page-handler="Download"
-					   asp-route-deezerUrl="@track.DeezerUrl"
-					   asp-route-format="mp3"
-					   class="btn btn-track-mp3">
-						💾 MP3
-					</a>
+                    @if (!track.IsAvailable)
+                    {
+                        <span class="availability-badge unavailable">🚫 Недоступен</span>
+                        @if (!string.IsNullOrEmpty(track.ErrorMessage))
+                        {
+                            <span class="error-message">(@track.ErrorMessage)</span>
+                        }
+                    }
+                    else
+                    {
+                        <span class="availability-badge available">✅ Доступен</span>
+                    }
+                </div>
 
-					<a asp-page-handler="Download"
-					   asp-route-deezerUrl="@track.DeezerUrl"
-					   asp-route-format="flac"
-					   class="btn btn-track-flac">
-						💾 FLAC
-					</a>
+                <div class="track-actions">
+                    <a asp-page-handler="Download"
+                       asp-route-deezerUrl="@track.DeezerUrl"
+                       asp-route-format="mp3"
+                       class="btn btn-track-mp3">
+                        💾 MP3
+                    </a>
 
-					<a href="@track.Url" target="_blank" class="btn btn-track-listen">
-						🎧 Listen on Spotify
-					</a>
-				</div>
-			</li>
-		}
-	</ul>
-}
+                    <a asp-page-handler="Download"
+                       asp-route-deezerUrl="@track.DeezerUrl"
+                       asp-route-format="flac"
+                       class="btn btn-track-flac">
+                        💾 FLAC
+                    </a>
+                </div>
+            </li>
+        }
+    </ul>
+	}
 
 <!-- Список нескачанных треков -->
 @if (Model.FailedTracks.Any() || hasFailedTracks)
@@ -249,10 +292,6 @@
 					   asp-route-format="flac"
 					   class="btn btn-track-flac">
 						💾 FLAC
-					</a>
-
-					<a href="@track.Url" target="_blank" class="btn btn-spotify">
-						🎧 Spotify
 					</a>
 				</div>
 			</li>
@@ -605,6 +644,15 @@ else if (!string.IsNullOrWhiteSpace(Model.Request.Query["query"]))
 		color: #666;
 		border-top: 1px solid #eee;
 	}
+
+	.btn-success {
+		background-color: #28a745;
+		color: white;
+	}
+
+		.btn-success:hover {
+			background-color: #218838;
+		}
 </style>
 
 <script>

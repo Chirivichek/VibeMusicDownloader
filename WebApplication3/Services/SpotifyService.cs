@@ -110,5 +110,26 @@ namespace WebApplication3.Services
                 return new List<FullPlaylist>();
             }
         }
+
+        public async Task<FullPlaylist?> GetPlaylistAsync(string playlistId)
+        {
+            if (_spotifyClient == null)
+                throw new InvalidOperationException("SpotifyClient не инициализирован");
+
+            try
+            {
+                return await _spotifyClient.Playlists.Get(playlistId);
+            }
+            catch (APIException ex) when (ex.Response?.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                Console.WriteLine($"Плейлист {playlistId} не найден: {ex.Message}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка получения плейлиста: {ex.Message}");
+                return null;
+            }
+        }
     }
 }
