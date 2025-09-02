@@ -147,7 +147,9 @@ namespace WebApplication3.Services
                     ImageUrl = json["picture_medium"]?.ToString(),
                     Owner = json["creator"]?["name"]?.ToString(),
                     TrackCount = json["nb_tracks"]?.ToObject<int>() ?? 0,
-                    Url = json["link"]?.ToString()
+                    Url = json["link"]?.ToString(),
+                    Duration = json["duration"]?.ToObject<int>() ?? 0,
+                    IsPublic = json["public"]?.ToObject<bool>() ?? true
                 };
             }
             catch (Exception ex)
@@ -163,12 +165,24 @@ namespace WebApplication3.Services
 
             try
             {
-                var tracksUrl = $"https://api.deezer.com/playlist/{playlistId}/tracks";
-                var response = await _httpClient.GetStringAsync(tracksUrl);
-                var json = JObject.Parse(response);
+                // Получаем информацию о плейлисте чтобы узнать общее количество треков
+                var playlistInfo = await GetDeezerPlaylistInfo(playlistId);
+                var totalTracks = playlistInfo?.TrackCount ?? 0;
 
-                if (json["data"] != null)
+                // Deezer API ограничивает 2000 треков для бесплатного использования
+                var maxTracks = Math.Min(totalTracks, 2000);
+                const int limit = 100;
+
+
+                for (int index = 0; index < maxTracks; index += limit)
                 {
+                    var tracksUrl = $"https://api.deezer.com/playlist/{playlistId}/tracks?index={index}&limit={limit}";
+                    var response = await _httpClient.GetStringAsync(tracksUrl);
+                    var json = JObject.Parse(response);
+
+                    if (json["data"] == null || !json["data"].Any())
+                        break;
+
                     foreach (var item in json["data"])
                     {
                         tracks.Add(new DeezerTrack
@@ -179,6 +193,11 @@ namespace WebApplication3.Services
                             DeezerUrl = item["link"]?.ToString()
                         });
                     }
+
+                    if (tracks.Count >= maxTracks)
+                        break;
+
+                    await Task.Delay(100);
                 }
             }
             catch (Exception ex)
@@ -470,19 +489,28 @@ namespace WebApplication3.Services
                 }
             }
         }
-        public async Task<(IActionResult Result, List<TrackInfo> FailedTracks)> DownloadDeezerPlaylistAsync(string deezerPlaylistId, string format = "mp3")
+        public async Task<(IActionResult Result, List<TrackInfo> FailedTracks)> DownloadDeezerPlaylistAsync(string deezerPlaylistId, string format = "mp3", Action<DownloadProgress> progressCallback = null)
         {
             // Создаем временную директорию
             var tempDirectory = Path.Combine(Path.GetTempPath(), $"deezer_playlist_{deezerPlaylistId}_{Guid.NewGuid().ToString("N").Substring(0, 8)}");
             Directory.CreateDirectory(tempDirectory);
 
             var failedTracks = new List<TrackInfo>();
+            // Получаем треки из Deezer плейлиста
+            var deezerTracks = await GetDeezerPlaylistTracks(deezerPlaylistId);
+
+            var progress = new DownloadProgress
+            {
+                PlaylistId = deezerPlaylistId,
+                TotalTracks = deezerTracks.Count,
+                StartTime = DateTime.Now,
+                CurrentTrack = "Начинаем загрузку..."
+            };
+
+            progressCallback?.Invoke(progress);
 
             try
             {
-                // Получаем треки из Deezer плейлиста
-                var deezerTracks = await GetDeezerPlaylistTracks(deezerPlaylistId);
-
                 if (deezerTracks.Count == 0)
                     throw new Exception("No tracks found in the Deezer playlist.");
 
@@ -493,12 +521,19 @@ namespace WebApplication3.Services
                 {
                     try
                     {
+                        // Обновляем прогресс
+                        progress.CurrentTrack = $"{track.Artist} - {track.Title}";
+                        progressCallback?.Invoke(progress);
+
                         if (!string.IsNullOrEmpty(track.DeezerUrl))
                         {
                             var success = await DownloadSingleTrack(track.DeezerUrl, tempDirectory, format);
+
                             if (success)
                             {
                                 downloadedCount++;
+                                progress.DownloadedTracks = downloadedCount;
+                                progressCallback?.Invoke(progress);
                             }
                             else
                             {
@@ -512,6 +547,8 @@ namespace WebApplication3.Services
                                     ErrorMessage = "Ошибка скачивания"
                                 };
                                 failedTracks.Add(trackInfo);
+                                progress.FailedTracks = failedTracks.Count;
+                                progressCallback?.Invoke(progress);
                             }
                         }
                         await Task.Delay(1000); // Пауза между скачиваниями
@@ -529,6 +566,8 @@ namespace WebApplication3.Services
                             ErrorMessage = ex.Message
                         };
                         failedTracks.Add(trackInfo);
+                        progress.FailedTracks = failedTracks.Count;
+                        progressCallback?.Invoke(progress);
                     }
                 }
 

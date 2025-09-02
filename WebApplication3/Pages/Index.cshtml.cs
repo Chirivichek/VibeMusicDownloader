@@ -6,6 +6,16 @@ using WebApplication3.Services;
 
 namespace WebApplication3.Pages
 {
+    public class DownloadProgress
+    {
+        public string PlaylistId { get; set; }
+        public int TotalTracks { get; set; }
+        public int DownloadedTracks { get; set; }
+        public int FailedTracks { get; set; }
+        public bool IsCompleted { get; set; }
+        public DateTime StartTime { get; set; }
+        public string CurrentTrack { get; set; }
+    }
     public class DeezerPlaylistInfo
     {
         public string? Title { get; set; }
@@ -14,6 +24,8 @@ namespace WebApplication3.Pages
         public string? Owner { get; set; }
         public int TrackCount { get; set; }
         public string? Url { get; set; }
+        public int Duration { get; set; } // в секундах
+        public bool IsPublic { get; set; }
     }
 
     public class DeezerTrack
@@ -59,8 +71,12 @@ namespace WebApplication3.Pages
         public List<PlaylistInfo> PlaylistResult { get; set; } = new();
         public List<TrackInfo> PlaylistTracks { get; set; } = new();
         public List<TrackInfo> FailedTracks { get; set; } = new();
-        public string SelectedPlaylistId { get; set; }  
-        
+        public string SelectedPlaylistId { get; set; }
+        [BindProperty]
+        public DownloadProgress Progress { get; set; }
+
+        public static Dictionary<string, DownloadProgress> ActiveDownloads = new Dictionary<string, DownloadProgress>();
+
         public async Task OnGetAsync(string query, string playlistUrl,string deezerPlaylistUrl, string playlistId)
         {
             // ПРЯМОЙ ПОИСК В DEEZER
@@ -457,11 +473,22 @@ namespace WebApplication3.Pages
         {
             try
             {
-                var (result, failedTracks) = await _musicService.DownloadDeezerPlaylistAsync(playlistId, format);
+                var progress = new DownloadProgress
+                {
+                    PlaylistId = playlistId,
+                    StartTime = DateTime.Now
+                };
+
+                ActiveDownloads[playlistId] = progress;
+
+                var (result, failedTracks) = await _musicService.DownloadDeezerPlaylistAsync(playlistId, format, (p) => { ActiveDownloads[playlistId] = p; });
 
                 // Сохраняем информацию о неудачных треках
                 FailedTracks = failedTracks;
                 TempData["FailedTracksCount"] = failedTracks.Count.ToString();
+
+                // Удаляем из активных загрузок после завершения
+                ActiveDownloads.Remove(playlistId);
 
                 return result;
             }
@@ -470,6 +497,15 @@ namespace WebApplication3.Pages
                 TempData["Error"] = $"Ошибка при скачивании Deezer плейлиста: {ex.Message}";
                 return RedirectToPage();
             }
+        }
+        // Новый метод для проверки прогресса
+        public async Task<IActionResult> OnGetCheckProgress(string playlistId)
+        {
+            if (ActiveDownloads.TryGetValue(playlistId, out var progress))
+            {
+                return new JsonResult(progress);
+            }
+            return new JsonResult(new { error = "Download not found" });
         }
     }
 }

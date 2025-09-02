@@ -13,6 +13,26 @@
 
 <h3>Welcome to Vibe Music Downloader</h3>
 
+<!-- Контейнер прогресс-бара -->
+<div id="progress-container" class="progress-container" style="display: none; margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+	<h4>📥 Загрузка плейлиста</h4>
+
+	<div class="progress" style="height: 25px; margin: 10px 0;">
+		<div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+			 role="progressbar" style="width: 0%;"
+			 aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+		</div>
+	</div>
+
+	<div id="progress-text" class="progress-text" style="font-weight: bold; margin: 5px 0;">
+		Подготовка к загрузке...
+	</div>
+
+	<div id="current-track" class="current-track" style="font-style: italic; color: #666;">
+		Ожидание начала загрузки...
+	</div>
+</div>
+
 @if (TempData["Error"] != null)
 {
     <p style="color: red;">@TempData["Error"]</p>
@@ -85,14 +105,16 @@
 							<a asp-page-handler="DownloadPlaylist"
                                asp-route-playlistId="@playlist.Id"
                                asp-route-format="mp3"
-                               class="btn btn-success">
+                               class="btn btn-success"
+							   data-playlist-id="@playlist.Id">
                                 Скачать MP3 (Deezer)
                             </a>
 
                             <a asp-page-handler="DownloadPlaylist"
                                asp-route-playlistId="@playlist.Id"
                                asp-route-format="flac"
-                               class="btn btn-info">
+                               class="btn btn-info"
+							   data-playlist-id="@playlist.Id">
                                 Скачать FLAC (Deezer)
                             </a>
                         }
@@ -154,14 +176,16 @@
 			<a asp-page-handler="DownloadDeezerPlaylist"
                asp-route-playlistId="@Model.SelectedPlaylistId"
                asp-route-format="mp3"
-               class="btn btn-success">
+               class="btn btn-success"
+			   data-playlist-id="@Model.SelectedPlaylistId">
                 💾 Скачать MP3 (Deezer)
             </a>
 
 			<a asp-page-handler="DownloadDeezerPlaylist"
                asp-route-playlistId="@Model.SelectedPlaylistId"
                asp-route-format="flac"
-               class="btn btn-info">
+               class="btn btn-info"
+			   data-playlist-id="@Model.SelectedPlaylistId">
                 💾 Скачать FLAC (Deezer)
             </a>
         }
@@ -305,45 +329,6 @@ else if (!string.IsNullOrEmpty(Model.Request.Query["query"]) && string.IsNullOrE
 	</div>
 }
 
-
-@* @if (Model.Results.Any())
-{
-	<h2>Search Results</h2>
-	<ul>
-		@foreach (var track in Model.Results)
-		{
-			<li>
-				<strong>@track.Title</strong> by @track.Artist
-				@if (!string.IsNullOrEmpty(track.DeezerUrl))
-				{
-
-					<div style="display: inline-block; margin-left: 10px;">
-						<select id="format-@track.DeezerId" style="padding: 3px; margin-right: 5px;">
-							<option value="mp3">MP3 320kbps</option>
-							<option value="flac">FLAC Lossless</option>
-						</select>
-
-						<button onclick="downloadTrack('@track.DeezerUrl', '@track.Artist', '@track.Title', '@track.DeezerId')"
-								style="padding: 3px 8px; background:#007bff; color:white; border:none; border-radius:3px;">
-							💾 Скачать
-						</button>
-					</div>
-
-				}
-				else
-				{
-					<span style="color: gray;">Download not available</span>
-				}
-				<a href="@track.Url" target="_blank">Listen on Spotify</a>
-			</li>
-
-		}
-	</ul>
-}
-else if (!string.IsNullOrWhiteSpace(Model.Request.Query["query"]))
-{
-	<p>No tracks found for "@Model.Request.Query["query"]".</p>
-} *@
 
 <style>
 	/* Стили для доступности */
@@ -655,27 +640,82 @@ else if (!string.IsNullOrWhiteSpace(Model.Request.Query["query"]))
 		}
 </style>
 
-<script>
-	function downloadTrack(deezerUrl, artist, title, deezerId) {
-		var formatSelect = document.getElementById('format-' + deezerId);
-		var format = formatSelect.value;
 
-		var filename = format === 'flac'
-			? artist + ' - ' + title + '.flac'
-			: artist + ' - ' + title + '.mp3';
+@section Scripts {
+	<script>
+		function downloadTrack(deezerUrl, artist, title, deezerId) {
+			var formatSelect = document.getElementById('format-' + deezerId);
+			var format = formatSelect.value;
 
-		var url = '/?handler=Download&deezerUrl=' + encodeURIComponent(deezerUrl) + '&format=' + format;
+			var filename = format === 'flac'
+				? artist + ' - ' + title + '.flac'
+				: artist + ' - ' + title + '.mp3';
 
-		// Создаем временную ссылку для скачивания
-		var a = document.createElement('a');
-		a.href = url;
-		a.download = filename;
-		a.style.display = 'none';
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-	}
-</script>
+			var url = '/?handler=Download&deezerUrl=' + encodeURIComponent(deezerUrl) + '&format=' + format;
+
+			// Создаем временную ссылку для скачивания
+			var a = document.createElement('a');
+			a.href = url;
+			a.download = filename;
+			a.style.display = 'none';
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+		}
+	</script>
+
+	<script>
+		// Функция для запуска отслеживания прогресса
+		function startProgressTracking(playlistId) {
+			const progressContainer = document.getElementById('progress-container');
+			const progressBar = document.getElementById('progress-bar');
+			const progressText = document.getElementById('progress-text');
+			const currentTrack = document.getElementById('current-track');
+
+			progressContainer.style.display = 'block';
+
+			// Проверяем прогресс каждые 2 секунды
+			const interval = setInterval(async () => {
+				try {
+					const response = await fetch(`?handler=CheckProgress&playlistId=${playlistId}`);
+					const data = await response.json();
+
+					if (data.error) {
+						clearInterval(interval);
+						progressText.textContent = 'Загрузка завершена';
+						return;
+					}
+
+					const progressPercent = (data.downloadedTracks / data.totalTracks) * 100;
+					progressBar.style.width = `${progressPercent}%`;
+					progressBar.setAttribute('aria-valuenow', progressPercent);
+
+					progressText.textContent =
+						`Загружено: ${data.downloadedTracks}/${data.totalTracks} треков ` +
+						`(Ошибок: ${data.failedTracks})`;
+
+					currentTrack.textContent = `Текущий трек: ${data.currentTrack}`;
+
+					if (data.isCompleted) {
+						clearInterval(interval);
+						progressText.textContent = 'Загрузка завершена! Подготовка архива...';
+					}
+
+				} catch (error) {
+					console.error('Error checking progress:', error);
+				}
+			}, 2000);
+		}
+
+		// Обработчик для кнопок скачивания Deezer
+		document.querySelectorAll('[data-playlist-id]').forEach(button => {
+			button.addEventListener('click', function() {
+				const playlistId = this.getAttribute('data-playlist-id');
+				startProgressTracking(playlistId);
+			});
+		});
+	</script>
+}
 
 @section Footer {
 		 Copyright© MusicDownloader.com, @DateTime.Now.Year. All rights reserved
