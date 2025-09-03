@@ -528,7 +528,6 @@ namespace WebApplication3.Services
                 throw new Exception($"Error downloading Deezer playlist: {ex.Message}");
             }
         }
-
         private async Task<IActionResult> StreamZipToBrowser(
              HttpContext httpContext,
              List<DeezerTrack> tracks,
