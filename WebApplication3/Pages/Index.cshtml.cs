@@ -473,22 +473,18 @@ namespace WebApplication3.Pages
         {
             try
             {
-                var progress = new DownloadProgress
-                {
-                    PlaylistId = playlistId,
-                    StartTime = DateTime.Now
-                };
+                var (result, failedTracks) = await _musicService.DownloadDeezerPlaylistAsync(
+                    playlistId,
+                    format,
+                    (p) => {
+                        IndexModel.ActiveDownloads[playlistId] = p;
+                    },
+                    HttpContext);
 
-                ActiveDownloads[playlistId] = progress;
-
-                var (result, failedTracks) = await _musicService.DownloadDeezerPlaylistAsync(playlistId, format, (p) => { ActiveDownloads[playlistId] = p; });
-
-                // Сохраняем информацию о неудачных треках
                 FailedTracks = failedTracks;
                 TempData["FailedTracksCount"] = failedTracks.Count.ToString();
 
-                // Удаляем из активных загрузок после завершения
-                ActiveDownloads.Remove(playlistId);
+                IndexModel.ActiveDownloads.Remove(playlistId);
 
                 return result;
             }
