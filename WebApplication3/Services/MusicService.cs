@@ -8,6 +8,10 @@ using RussianTransliteration;
 using WebApplication3.Pages;
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Threading.Channels;
+using SharpCompress.Common;
+using SharpCompress.Writers;
+using SharpCompress.Writers.Zip;
 namespace WebApplication3.Services
 {
     public class MusicService
@@ -492,6 +496,7 @@ namespace WebApplication3.Services
             }
         }
         public async Task<(IActionResult Result, List<TrackInfo> FailedTracks)> DownloadDeezerPlaylistAsync(string deezerPlaylistId, string format = "mp3", Action<DownloadProgress> progressCallback = null, HttpContext httpContext = null)
+
         {
             var failedTracks = new List<TrackInfo>();
 
@@ -529,115 +534,123 @@ namespace WebApplication3.Services
             }
         }
         private async Task<IActionResult> StreamZipToBrowser(
-             HttpContext httpContext,
-             List<DeezerTrack> tracks,
-             string playlistId,
-             string format,
-             DownloadProgress progress,
-             Action<DownloadProgress> progressCallback,
-             List<TrackInfo> failedTracks)
-        { 
+    HttpContext httpContext,
+    List<DeezerTrack> tracks,
+    string playlistId,
+    string format,
+    DownloadProgress progress,
+    Action<DownloadProgress> progressCallback,
+    List<TrackInfo> failedTracks)
+        {
             var response = httpContext.Response;
-
-            // Устанавливаем заголовки для потоковой отдачи ZIP
             response.Headers.Append("Content-Type", "application/zip");
             response.Headers.Append("Content-Disposition", $"attachment; filename=\"{playlistId}.zip\"");
 
-            var downloadedCount = 0;
-            var semaphore = new SemaphoreSlim(2); // Ограничение одновременных загрузок
+            int downloadedCount = 0;
 
-            // Создаем временный файл для ZIP
-            var tempZipPath = Path.GetTempFileName();
-
-            try
+            using (var writer = WriterFactory.Open(response.Body, ArchiveType.Zip, new WriterOptions(CompressionType.Deflate)))
             {
-                using (var fileStream = new FileStream(tempZipPath, FileMode.Create))
-                using (var zipArchive = new ZipArchive(fileStream, ZipArchiveMode.Create, true))
+                foreach (var track in tracks)
                 {
-                    var downloadTracks = tracks.Select(async deezerTrack =>
+                    progress.CurrentTrack = $"{track.Artist} - {track.Title}";
+                    progressCallback?.Invoke(progress);
+
+                    try
                     {
-                        await semaphore.WaitAsync();
-
-                        try
+                        using var trackStream = await DownloadTrackAsStream(track.DeezerUrl, format);
+                        if (trackStream != null)
                         {
-                            progress.CurrentTrack = $"{deezerTrack.Artist} - {deezerTrack.Title}";
-                            progressCallback?.Invoke(progress);
+                            var entryName = SanitizeFileName($"{track.Artist} - {track.Title}.{format}");
+                            writer.Write(entryName, trackStream, DateTime.Now);
 
-                            if (!string.IsNullOrEmpty(progress.CurrentTrack))
-                            {
-                                var tempFile = await DownloadTrackToTempFile(deezerTrack.DeezerUrl, format);
-
-                                if (tempFile != null && File.Exists(tempFile))
-                                {
-                                    var entryName = SanitizeFileName($"{deezerTrack.Artist} - {deezerTrack.Title}.{format}");
-                                    var entry = zipArchive.CreateEntry(entryName, CompressionLevel.Fastest);
-
-                                    using var entryStream = entry.Open();
-                                    using (var fileStreamRead = File.OpenRead(tempFile))
-                                    {
-                                        await fileStreamRead.CopyToAsync(entryStream);
-                                    }
-                                    File.Delete(tempFile); // Удаляем временный файл
-                                    Interlocked.Increment(ref downloadedCount);
-                                }
-                                else
-                                {
-                                    failedTracks.Add(new TrackInfo
-                                    {
-                                        Title = deezerTrack.Title,
-                                        Artist = deezerTrack.Artist,
-                                        DeezerId = deezerTrack.DeezerId,
-                                        DeezerUrl = deezerTrack.DeezerUrl,
-                                        IsAvailable = false,
-                                        ErrorMessage = "Ошибка скачивания"
-                                    });
-                                }
-                            }
-                            progress.DownloadedTracks = downloadedCount;
-                            progress.FailedTracks = failedTracks.Count;
-                            progressCallback?.Invoke(progress);
-
-                            await Task.Delay(1000); // Пауза между скачиваниями
+                            downloadedCount++;
                         }
-                        catch (Exception ex)
+                        else
                         {
                             failedTracks.Add(new TrackInfo
                             {
-                                Title = deezerTrack.Title,
-                                Artist = deezerTrack.Artist,
-                                ErrorMessage = ex.Message
+                                Title = track.Title,
+                                Artist = track.Artist,
+                                DeezerId = track.DeezerId,
+                                DeezerUrl = track.DeezerUrl,
+                                IsAvailable = false,
+                                ErrorMessage = "Ошибка скачивания"
                             });
-                            progress.FailedTracks = failedTracks.Count;
-                            progressCallback?.Invoke(progress);
                         }
-                        finally
+                    }
+                    catch (Exception ex)
+                    {
+                        failedTracks.Add(new TrackInfo
                         {
-                            semaphore.Release();
-                        }
-                    }).ToArray();
+                            Title = track.Title,
+                            Artist = track.Artist,
+                            ErrorMessage = ex.Message
+                        });
+                    }
 
-                    await Task.WhenAll(downloadTracks);
+                    progress.DownloadedTracks = downloadedCount;
+                    progress.FailedTracks = failedTracks.Count;
+                    progressCallback?.Invoke(progress);
                 }
-
-                // Отправляем готовый ZIP
-                var fileBytes = await File.ReadAllBytesAsync(tempZipPath);
-
-                progress.IsCompleted = true;
-                progressCallback?.Invoke(progress);
-
-                return new FileContentResult(fileBytes, "application/zip")
-                {
-                    FileDownloadName = $"{playlistId}.zip"
-                };
             }
-            finally
+
+            progress.IsCompleted = true;
+            progressCallback?.Invoke(progress);
+
+            return new EmptyResult();
+        }
+
+        private async Task<Stream?> DownloadTrackAsStream(string deezerUrl, string format)
+        {
+            try
             {
-                if (File.Exists(tempZipPath))
+                string pythonPath = @"C:\Users\pavlo\AppData\Local\Programs\Python\Python39\python.exe";
+                string bitrate = format.ToLower() == "flac" ? "9" : "3";
+
+                // временная папка только для deemix
+                var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+                Directory.CreateDirectory(tempDir);
+
+                var psi = new ProcessStartInfo
                 {
-                    try { File.Delete(tempZipPath); } catch { }
+                    FileName = pythonPath,
+                    Arguments = $"-m deemix -b {bitrate} -p \"{tempDir}\" \"{deezerUrl}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = Process.Start(psi);
+                if (process == null) return null;
+
+                await process.WaitForExitAsync();
+
+                var extension = format.ToLower() == "flac" ? ".flac" : ".mp3";
+                var downloadedFiles = Directory.GetFiles(tempDir, $"*{extension}")
+                    .OrderByDescending(f => new FileInfo(f).LastWriteTime)
+                    .ToList();
+
+                if (downloadedFiles.Count > 0)
+                {
+                    // Открываем поток прямо из файла
+                    var stream = new MemoryStream(await File.ReadAllBytesAsync(downloadedFiles[0]));
+
+                    // очищаем временный каталог
+                    Directory.Delete(tempDir, true);
+
+                    return stream;
                 }
+
+                Directory.Delete(tempDir, true);
+                return null;
+            }
+            catch
+            {
+                return null;
             }
         }
+
         private async Task<string> DownloadTrackToTempFile(string deezerUrl, string format)
         {
             try

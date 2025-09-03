@@ -8,11 +8,12 @@
 
   <ItemGroup>
     <PackageReference Include="RussianTransliterator" Version="1.0.1.1" />
+    <PackageReference Include="SharpCompress" Version="0.40.0" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.2.1" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="wwwroot\music\" />
+    <Folder Include="wwwroot\" />
   </ItemGroup>
 
 </Project>

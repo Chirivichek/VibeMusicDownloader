@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using WebApplication3.Services;
 
 namespace WebApplication3
@@ -16,6 +17,16 @@ namespace WebApplication3
 
             // Add services to the container.
             builder.Services.AddRazorPages();
+
+            builder.Services.Configure<KestrelServerOptions>(options =>
+            {
+                options.AllowSynchronousIO = true;
+            });
+
+            builder.Services.Configure<IISServerOptions>(options =>
+            {
+                options.AllowSynchronousIO = true;
+            });
 
             var app = builder.Build();
 
